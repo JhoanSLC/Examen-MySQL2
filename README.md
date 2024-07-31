@@ -19,7 +19,7 @@ JOIN categoria ca ON p.categoriaId = ca.id;
 ```sql
 SELECT
     c.id,
-    c.clienteId
+    c.clienteId,
     cli.nombre as nombreCliente
 FROM
     compra c
@@ -37,8 +37,8 @@ SELECT
     cp.total,
     cp.estado
 FROM
-    comprasProcuctos cp
-WHERE cp.compraId = 1
+    comprasProductos cp
+WHERE cp.compraId = 1;
 ```
 
 ### Agregar un nuevo producto
@@ -504,18 +504,22 @@ WHERE precioVenta > (
 ### Consultar los clientes que han gastado más del promedio general en sus compras
 
 ```sql
-SELECT
-    c.id AS clienteId,
-    c.nombre AS clienteNombre,
-    SUM(cp.total) AS totalGastado
+SELECT c.id, c.nombre, c.apellidos, c.correo
 FROM cliente c
-JOIN compra comp ON c.id = comp.clienteId
-JOIN comprasProductos cp ON comp.id = cp.compraId
-GROUP BY c.id, c.nombre
-HAVING SUM(cp.total) > (
-    SELECT AVG(totalGastado)
+WHERE (
+    SELECT SUM(cp.total)
+    FROM comprasProductos cp
+    JOIN compra co ON cp.compraId = co.id
+    WHERE co.clienteId = c.id) > (
+        SELECT AVG(gastoTotal)
+        FROM (
+            SELECT SUM(cp.total) AS gastoTotal
+            FROM comprasProductos cp
+            JOIN compra co ON cp.compraId = co.id
+            GROUP BY co.clienteId
+        ) AS gastosPorCliente
+);
 
--- SIN TERMINAR --
 ```
 
 ### Consultar las categorías que tienen más de 5 productos
@@ -536,6 +540,31 @@ WHERE id IN (
 ### Consultar los productos más vendidos (top 5) por categoría
 
 ```sql
+SELECT 
+    p.id, 
+    p.nombre, 
+    p.categoriaId, 
+    totalVentas
+FROM (
+    SELECT 
+        productoId, 
+        SUM(cantidad) AS totalVentas
+    FROM comprasProductos
+    GROUP BY productoId
+) AS ventasPorProducto
+JOIN producto p ON p.id = ventasPorProducto.productoId
+WHERE (
+    SELECT COUNT(*)
+    FROM (
+        SELECT productoId, SUM(cantidad) AS totalVentas
+        FROM comprasProductos cp
+        JOIN producto p2 ON cp.productoId = p2.id
+        WHERE p2.categoriaId = p.categoriaId
+        GROUP BY productoId
+        HAVING SUM(cantidad) > ventasPorProducto.totalVentas
+    ) AS ranking
+) < 5
+ORDER BY p.categoriaId, totalVentas DESC;
 
 
 ```
@@ -556,18 +585,26 @@ WHERE c.id IN (
 ### Consultar las compras y sus productos para un cliente específico, mostrando solo las compras más recientes
 
 ```sql
-SELECT
-    co.id,
-    co.clienteId,
-    co.fecha,
-    cp.productoId,
-    cp.cantidad
-FROM compra co
-WHERE co.id = "1" AND 
-ORDER BY co.fecha ASC
-LIMIT 5;
-
--- SIN TERMINAR --
+SELECT c.id AS clienteId, 
+       c.nombre AS clienteNombre, 
+       co.id AS compraId, 
+       co.fecha AS compraFecha, 
+       cp.id AS productoId, 
+       p.nombre AS productoNombre, 
+       cp.cantidad, 
+       cp.total
+FROM cliente c
+JOIN compra co ON c.id = co.clienteId
+JOIN comprasProductos cp ON co.id = cp.compraId
+JOIN producto p ON cp.productoId = p.id
+WHERE c.id = '1'  
+  AND co.fecha IN (
+      SELECT MAX(fecha)
+      FROM compra
+      WHERE clienteId = c.id
+      GROUP BY DATE(fecha)
+  )
+ORDER BY co.fecha DESC;
 
 ```
 
@@ -607,27 +644,47 @@ WHERE (
 ### Consultar las compras que tienen más productos que el promedio de productos por compra
 
 ```sql
-SELECT
-    comp.id AS compraId,
-    comp.fecha AS compraFecha,
-    COUNT(cp.productoId) AS numProductos
-FROM compra comp
-JOIN comprasProductos cp ON comp.id = cp.compraId
-GROUP BY comp.id, comp.fecha
-HAVING COUNT(cp.productoId) > (
-    SELECT AVG(numProductos)
-    FROM (
-        SELECT COUNT(cp2.productoId) AS numProductos
-        FROM comprasProductos cp2
-        GROUP BY cp2.compraId
-    ) AS promedioSubquery
+SELECT c.id AS clienteId, 
+       c.nombre AS clienteNombre, 
+       co.id AS compraId, 
+       co.fecha AS compraFecha, 
+       p.id AS productoId, 
+       p.nombre AS productoNombre, 
+       cp.cantidad, 
+       cp.total
+FROM cliente c
+JOIN compra co ON c.id = co.clienteId
+JOIN comprasProductos cp ON co.id = cp.compraId
+JOIN producto p ON cp.productoId = p.id
+WHERE c.id = '1' 
+  AND co.fecha IN (
+      SELECT MAX(fecha)
+      FROM compra
+      WHERE clienteId = c.id
+      GROUP BY DATE(fecha)
+  )
+ORDER BY co.fecha DESC;
 );
 
 ```
 ### Consultar los productos que se han vendido menos de la cantidad promedio de productos vendidos
 
 ```sql
---SIN HACER --
+SELECT p.id, 
+       p.nombre, 
+       p.categoriaId, 
+       SUM(cp.cantidad) AS cantidadVendida
+FROM producto p
+LEFT JOIN comprasProductos cp ON p.id = cp.productoId
+GROUP BY p.id, p.nombre, p.categoriaId
+HAVING SUM(cp.cantidad) < (
+    SELECT AVG(totalCantidad)
+    FROM (
+        SELECT SUM(cp.cantidad) AS totalCantidad
+        FROM comprasProductos cp
+        GROUP BY cp.productoId
+    ) AS cantidadesPorProducto
+);
 ```
 
 
